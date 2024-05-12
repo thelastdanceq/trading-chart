@@ -63,11 +63,11 @@ export class CandleStickRenderer {
     );
     if (!data || !data.length || !data[0].Bars.length) return;
 
-    this.setBars(
-      data.flatMap((d) =>
-        d.Bars.map((b) => ({ ...b, Time: b.Time + d.ChunkStart }))
-      )
+    const flattenBars = data.flatMap((d) =>
+      d.Bars.map((b) => ({ ...b, Time: b.Time + d.ChunkStart }))
     );
+
+    this.setBars(flattenBars);
   }
 
   private fetchDataIfNeededOptimized = throttle(this.fetchDataIfNeeded, 1000, {

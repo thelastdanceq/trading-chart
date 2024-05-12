@@ -51,6 +51,10 @@ function populateTimeframesDropdown(id = "timeframes") {
 function createCanvas() {
   const canvas = document.getElementById("chart") as HTMLCanvasElement;
   const ctx = canvas.getContext("2d");
+
+  canvas.width = window.innerWidth - 100;
+  canvas.height = window.innerHeight - 100;
+
   if (!ctx) {
     throw new Error("Unable to get 2d context from canvas");
   }

@@ -1,4 +1,4 @@
-interface Chunk {
+export interface Chunk {
   ChunkStart: number;
   Bars: Bar[];
 }
@@ -32,11 +32,6 @@ export class CandleStickApi {
     const url = new URL(this.url);
     url.search = new URLSearchParams(queryParameters).toString();
     const data = (await (await fetch(url.toString())).json()) as Chunk[];
-    console.log("fetchCandleSticks", {
-      start,
-      end,
-      barsAmount: data.reduce((acc, chunk) => acc + chunk.Bars.length, 0),
-    });
     return data;
   }
 
