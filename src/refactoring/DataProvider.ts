@@ -47,18 +47,29 @@ export class DataProvider {
   }
 
   /**
-   *
-   * TODO: now it doesn't work because data that is fetched is not corresponding to the start index
-   * Maybe better to talk about it on the interview
+   * @param amount
+   * @param fetchLess - if start - amount is out of bounds, fetch less than amount
    * @returns true - fetch was done, false - fetch skipped
    */
-  public async fetchBackwardBarsAndSetToStore(amount = 100): Promise<boolean> {
+  public async fetchBackwardBarsAndSetToStore({
+    amount = 5000,
+    fetchLess = false,
+  }: {
+    amount?: number;
+    fetchLess?: boolean;
+  }): Promise<boolean> {
     if (this.isFetching) return false;
     this.isFetching = true;
 
     try {
       const currentBars = this.bars;
-      if (!currentBars || this.start - amount < 0) return false;
+      if (!currentBars) return false;
+
+      if (this.start - amount < 0) {
+        if (!fetchLess) return false;
+        amount = this.start;
+      }
+
       const chunks = await this.api.fetchCandleSticks(
         this.symbol,
         this.timeframe,
@@ -70,12 +81,10 @@ export class DataProvider {
 
       const flattenBars = this.processChunks(chunks);
 
-      const filtered = flattenBars.filter((newBar) => {
-        return !currentBars.some((bar) => bar.Time === newBar.Time);
-      });
+      const filtered = this.filterBars(currentBars, flattenBars);
 
       this.start = this.start - filtered.length;
-      this.setBars([...currentBars, ...filtered]);
+      this.setBars([...filtered, ...currentBars]);
     } finally {
       this.isFetching = false;
     }
@@ -105,9 +114,7 @@ export class DataProvider {
 
       const flattenBars = this.processChunks(chunks);
 
-      const filtered = flattenBars.filter((newBar) => {
-        return !currentBars.some((bar) => bar.Time === newBar.Time);
-      });
+      const filtered = this.filterBars(currentBars, flattenBars);
 
       this.end += filtered.length;
       this.setBars([...currentBars, ...filtered]);
@@ -115,6 +122,11 @@ export class DataProvider {
       this.isFetching = false;
     }
     return true;
+  }
+
+  private filterBars(currentBars: Bar[], newBars: Bar[]): Bar[] {
+    const currentTimes = new Set(currentBars.map((bar) => bar.Time));
+    return newBars.filter((newBar) => !currentTimes.has(newBar.Time));
   }
 
   private processChunks(chunks: Chunk[]): Bar[] {

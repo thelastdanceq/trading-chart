@@ -31,10 +31,12 @@ export class CandleStickRenderer {
     const handleDrag = this.handleDrag.bind(this);
     const handleMouseMove = this.handleMouseMove.bind(this);
     const handleMouseWheel = this.handleMouseWheel.bind(this);
+    const handleCanvasResize = this.handleCanvasResize.bind(this);
     new InputHandler(this.canvas, {
       onDrag: handleDrag,
       onMouseMove: handleMouseMove,
       onMouseWheel: handleMouseWheel,
+      onResize: handleCanvasResize,
     });
   }
 
@@ -45,8 +47,22 @@ export class CandleStickRenderer {
    * @param bars
    * @param priceLow
    * @param priceHigh
+   * // todo: I do not like this solution because this is abstraction leak/hole
+   * // todo: in incapsulation(whoever can pass any offset that is not good )
+   * @param offsetXAdjustment it is needed when this is added to the end of the chart,
+   * but we want to see same camera position
    */
-  public render(bars: Bar[], priceLow?: number, priceHigh?: number): void {
+  public render({
+    bars,
+    priceLow,
+    priceHigh,
+    offsetXBarsAmountAdjustment = 0,
+  }: {
+    bars: Bar[];
+    priceLow?: number;
+    priceHigh?: number;
+    offsetXBarsAmountAdjustment?: number;
+  }): void {
     if (priceLow !== undefined && priceHigh !== undefined) {
       this.priceLow = priceLow;
       this.priceHigh = priceHigh;
@@ -56,6 +72,10 @@ export class CandleStickRenderer {
       console.warn("Price low/high not set. Cannot render.");
       return;
     }
+
+    this.scrollOffsetX +=
+      offsetXBarsAmountAdjustment *
+      (this.candlestickWidth + this.candlestickSpacing);
 
     this.barsToRender = bars;
 
@@ -130,23 +150,19 @@ export class CandleStickRenderer {
     if (this.mouseX === null || this.mouseY === null) {
       return;
     }
-    if (this.mouseX > this.canvas.width - 50) {
-      const mouseYPrice = this.getScaledPrice(this.mouseY + this.scrollOffsetY);
+    const mouseYPrice = this.getScaledPrice(this.mouseY + this.scrollOffsetY);
 
-      this.ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
-      this.ctx.fillRect(this.canvas.width - 100, this.mouseY - 10, 90, 20);
-      this.ctx.fillStyle = "#000";
-      this.ctx.fillText(
-        mouseYPrice.toFixed(precision),
-        this.canvas.width - 10,
-        this.mouseY
-      );
-    }
+    this.ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
+    this.ctx.fillRect(this.canvas.width - 100, this.mouseY - 10, 90, 20);
+    this.ctx.fillStyle = "#000";
+    this.ctx.fillText(
+      mouseYPrice.toFixed(precision),
+      this.canvas.width - 10,
+      this.mouseY
+    );
   }
 
   private drawTimeScale(bars: Bar[]) {
-    // Adjust the time interval based on the candlestick width.
-    // For example, if the width is very small, increase the interval to reduce label crowding.
     const baseInterval = 10;
     const dynamicInterval = Math.ceil(
       (baseInterval * 10) / Math.max(this.candlestickWidth, 1)
@@ -236,11 +252,27 @@ export class CandleStickRenderer {
       return;
     }
 
-    this.render(this.barsToRender, this.priceLow, this.priceHigh);
+    this.render({
+      bars: this.barsToRender,
+      priceLow: this.priceLow,
+      priceHigh: this.priceHigh,
+    });
   }
 
   private async handleDrag(deltaX: number, deltaY: number) {
     this.changeOffset(this.scrollOffsetX - deltaX, this.scrollOffsetY - deltaY);
+  }
+
+  private handleCanvasResize(newWindowX: number, newWindowY: number) {
+    // todo: fix abstraction leak
+    this.canvas.width = newWindowX - 100;
+    this.canvas.height = newWindowY - 100;
+
+    if (!this.barsToRender) return;
+
+    this.render({
+      bars: this.barsToRender,
+    });
   }
 
   private async handleMouseWheel(
@@ -304,7 +336,11 @@ export class CandleStickRenderer {
       );
     }
 
-    this.render(this.barsToRender, this.priceLow, this.priceHigh);
+    this.render({
+      bars: this.barsToRender,
+      priceLow: this.priceLow,
+      priceHigh: this.priceHigh,
+    });
   }
 
   private areMaxAmountAndRenderedAmountSignificantlyDifferent(

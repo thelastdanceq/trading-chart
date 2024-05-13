@@ -28,17 +28,25 @@ document.getElementById("submit")!.addEventListener("click", async () => {
   await dataProvider.fetchCandleSticks();
 
   const handleNewBarsNeed = throttle(async (direction: TimelineDirection) => {
+    const { bars: startBars } = dataProvider.getBars();
+
     switch (direction) {
       case TimelineDirection.FORWARD:
         await dataProvider.fetchForwardBarsAndSetToStore();
         break;
       case TimelineDirection.BACKWARD:
-        await dataProvider.fetchBackwardBarsAndSetToStore();
+        await dataProvider.fetchBackwardBarsAndSetToStore({ fetchLess: true });
         break;
     }
-    const { bars } = dataProvider.getBars();
+    const { bars: barsAfterFetching } = dataProvider.getBars();
 
-    renderer.render(bars);
+    renderer.render({
+      bars: barsAfterFetching,
+      offsetXBarsAmountAdjustment:
+        direction === TimelineDirection.BACKWARD
+          ? barsAfterFetching.length - startBars.length
+          : 0,
+    });
   }, 1000);
 
   const renderer = new CandleStickRenderer(canvas, ctx, async (dir) =>
@@ -46,5 +54,5 @@ document.getElementById("submit")!.addEventListener("click", async () => {
   );
 
   const { bars, priceLow, priceHigh } = dataProvider.getBars();
-  renderer.render(bars, priceLow, priceHigh);
+  renderer.render({ bars, priceLow, priceHigh });
 });

@@ -9,6 +9,7 @@ export class InputHandler {
         deltaY: number,
         canvasMouseX: number
       ) => void;
+      onResize: (newWindowX: number, newWindowY: number) => void;
     }
   ) {
     this.addEventListeners();
@@ -20,6 +21,7 @@ export class InputHandler {
     this.canvas.addEventListener("mouseup", this.handleMouseUp);
     this.canvas.addEventListener("mouseleave", this.handleMouseLeave);
     this.canvas.addEventListener("wheel", this.handleMouseWheel);
+    window.addEventListener("resize", this.handleResize);
   }
 
   private handleMouseDown = () => {
@@ -52,5 +54,9 @@ export class InputHandler {
 
     const mouseX = event.clientX - this.canvas.getBoundingClientRect().left;
     this.config.onMouseWheel(deltaX, deltaY, mouseX);
+  };
+
+  private handleResize = () => {
+    this.config.onResize(window.innerWidth, window.innerHeight);
   };
 }

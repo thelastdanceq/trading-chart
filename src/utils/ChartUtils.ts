@@ -13,7 +13,7 @@ export class ChartUtils {
     const range = high - low;
     if (range === 0) return 2;
     const digits = Math.ceil(-Math.log10(range)) + 1;
-    return Math.max(0, digits);
+    return Math.max(0, digits + 1);
   }
 
   /**
