@@ -7,13 +7,14 @@ import {
 import {
   CandleStickRenderer,
   TimelineDirection,
-} from "./refactoring/CandleStickRenderer.ts";
-import { DataProvider } from "./refactoring/DataProvider.ts";
+} from "./chartRendering/CandleStickRenderer.ts";
+import { DataProvider } from "./chartRendering/DataProvider.ts";
 import { candleStickApi } from "./api/CandleStickApi.ts";
 import { throttle } from "lodash";
 import "./styles/basic.css";
 
 const { ctx, canvas } = populateUI();
+
 document.getElementById("submit")!.addEventListener("click", async () => {
   const symbol = getSelectedTicker();
   const timeframe = MINUTES_IN_TIME_FRAMES[getSelectedTimeframe()];

@@ -1,6 +1,7 @@
 import { Bar } from "../api/CandleStickApi.ts";
 import { InputHandler } from "./InputHandler.ts";
 import { ChartUtils } from "../utils/ChartUtils.ts";
+import { ViewportManager } from "./ViewportManager.ts";
 
 export enum TimelineDirection {
   FORWARD = 1,
@@ -8,29 +9,36 @@ export enum TimelineDirection {
 }
 
 export class CandleStickRenderer {
-  private readonly candlestickSpacing = 2;
-  private candlestickWidth: number = 10;
-  private scrollOffsetX: number = 0;
-  private scrollOffsetY: number = 0;
   private mouseX: number | null = null;
   private mouseY: number | null = null;
 
   private barsToRender: Bar[] | null = null;
-  private priceLow: number | null = null;
-  private priceHigh: number | null = null;
 
+  private readonly candlestickSpacing = 2;
+  private readonly defaultCandlestickWidth = 10;
+  private readonly dateScaleMarginY = 30;
   private readonly priceScaleMarginX = 70;
-  private readonly dateScaleYMarginY = 30;
+
+  private readonly viewportManager: ViewportManager;
 
   constructor(
     private canvas: HTMLCanvasElement,
     private ctx: CanvasRenderingContext2D,
-    private loadMoreBarsCallback: (
+    private barsAreMissingFromSide: (
       direction: TimelineDirection
     ) => Promise<void>
   ) {
-    this.canvas.style.cursor = "default";
+    this.viewportManager = new ViewportManager(
+      this.defaultCandlestickWidth,
+      this.candlestickSpacing,
+      this.canvas.width,
+      this.canvas.height,
+      this.dateScaleMarginY,
+      this.priceScaleMarginX,
+      this.onViewPortChange.bind(this)
+    );
 
+    this.canvas.style.cursor = "default";
     const handleDrag = this.handleDrag.bind(this);
     const handleMouseMove = this.handleMouseMove.bind(this);
     const handleMouseWheel = this.handleMouseWheel.bind(this);
@@ -51,7 +59,7 @@ export class CandleStickRenderer {
    * @param priceLow
    * @param priceHigh
    * // todo: I do not like this solution because this is abstraction leak/hole
-   * // todo: in incapsulation(whoever can pass any offset that is not good )
+   * // todo: in incapsulation (whoever can pass any offset that is not good )
    * @param offsetXAdjustment it is needed when this is added to the end of the chart,
    * but we want to see same camera position
    */
@@ -67,8 +75,7 @@ export class CandleStickRenderer {
     offsetXBarsAmountAdjustment?: number;
   }): void {
     if (priceLow !== undefined && priceHigh !== undefined) {
-      this.priceLow = priceLow;
-      this.priceHigh = priceHigh;
+      this.viewportManager.setPriceBounds(priceLow, priceHigh);
     }
 
     if (!this.priceLow || !this.priceHigh) {
@@ -76,9 +83,7 @@ export class CandleStickRenderer {
       return;
     }
 
-    this.scrollOffsetX +=
-      offsetXBarsAmountAdjustment *
-      (this.candlestickWidth + this.candlestickSpacing);
+    this.viewportManager.panByXAmount(offsetXBarsAmountAdjustment);
 
     this.barsToRender = bars;
 
@@ -95,32 +100,29 @@ export class CandleStickRenderer {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     bars.forEach((bar, index) => {
-      const x =
-        index * (this.candlestickWidth + this.candlestickSpacing) -
-        this.scrollOffsetX;
-      const yHigh = this.getScaledY(bar.High, low, high) - this.scrollOffsetY;
-      const yLow = this.getScaledY(bar.Low, low, high) - this.scrollOffsetY;
-      const yOpen = this.getScaledY(bar.Open, low, high) - this.scrollOffsetY;
-      const yClose = this.getScaledY(bar.Close, low, high) - this.scrollOffsetY;
-
-      if (
-        x + this.candlestickWidth > 0 &&
-        x < this.canvasWidthConsideringPriceScale
-      ) {
-        this.ctx.beginPath();
-        this.ctx.moveTo(x + this.candlestickWidth / 2, yHigh);
-        this.ctx.lineTo(x + this.candlestickWidth / 2, yLow);
-        this.ctx.strokeStyle = "#000";
-        this.ctx.stroke();
-
-        this.ctx.fillStyle = bar.Close > bar.Open ? "green" : "red";
-        this.ctx.fillRect(
-          x,
-          Math.min(yOpen, yClose),
-          this.candlestickWidth,
-          Math.abs(yClose - yOpen)
-        );
+      const isInViewport = this.viewportManager.isInViewportByBarIdx(index);
+      if (!isInViewport) {
+        return;
       }
+      const x = this.viewportManager.getTransformedX(index);
+      const yHigh = this.viewportManager.getTransformedY(bar.High, low, high);
+      const yLow = this.viewportManager.getTransformedY(bar.Low, low, high);
+      const yOpen = this.viewportManager.getTransformedY(bar.Open, low, high);
+      const yClose = this.viewportManager.getTransformedY(bar.Close, low, high);
+
+      this.ctx.beginPath();
+      this.ctx.moveTo(x + this.candlestickWidth / 2, yHigh);
+      this.ctx.lineTo(x + this.candlestickWidth / 2, yLow);
+      this.ctx.strokeStyle = "#000";
+      this.ctx.stroke();
+
+      this.ctx.fillStyle = bar.Close > bar.Open ? "green" : "red";
+      this.ctx.fillRect(
+        x,
+        Math.min(yOpen, yClose),
+        this.candlestickWidth,
+        Math.abs(yClose - yOpen)
+      );
     });
   }
 
@@ -128,13 +130,8 @@ export class CandleStickRenderer {
     const priceRange = high - low;
     const numSteps = this.canvasHeightConsideringDateScale / 50;
     const stepValue = priceRange / numSteps;
-    const visibleLow =
-      low +
-      -this.scrollOffsetY *
-        (priceRange / this.canvasHeightConsideringDateScale);
-    const visibleHigh =
-      high -
-      this.scrollOffsetY * (priceRange / this.canvasHeightConsideringDateScale);
+    const [visibleLow, visibleHigh] =
+      this.viewportManager.getVisiblePriceBounds(low, high);
 
     const precision = ChartUtils.calculateDynamicPrecision(low, high);
 
@@ -146,20 +143,31 @@ export class CandleStickRenderer {
     const endValue = Math.floor(visibleHigh / stepValue) * stepValue;
 
     for (let price = startValue; price <= endValue; price += stepValue) {
-      const y = this.getScaledY(price, low, high) - this.scrollOffsetY;
-      if (y > 0 && y < this.canvasHeightConsideringDateScale) {
-        this.ctx.fillText(price.toFixed(precision), this.canvas.width - 10, y);
-      }
+      if (!this.viewportManager.isInViewportByPriceValue(price, low, high))
+        continue;
+
+      const y = this.viewportManager.getTransformedY(price, low, high);
+      this.ctx.fillText(price.toFixed(precision), this.canvas.width - 10, y);
     }
 
     this.drawPriceOverlay(precision);
   }
 
   private drawPriceOverlay(precision: number) {
-    if (this.mouseX === null || this.mouseY === null) {
+    if (
+      this.mouseX === null ||
+      this.mouseY === null ||
+      this.priceLow === null ||
+      this.priceHigh === null
+    ) {
       return;
     }
-    const mouseYPrice = this.getScaledPrice(this.mouseY + this.scrollOffsetY);
+
+    const mouseYPrice = this.viewportManager.getPriceByCanvasY(
+      this.mouseY,
+      this.priceLow,
+      this.priceHigh
+    );
 
     this.ctx.fillStyle = "#fff";
     this.ctx.fillRect(
@@ -190,16 +198,14 @@ export class CandleStickRenderer {
       0,
       this.canvasHeightConsideringDateScale,
       this.canvas.width,
-      this.dateScaleYMarginY
+      this.dateScaleMarginY
     );
     this.ctx.font = "10px Arial";
     this.ctx.fillStyle = "#333";
     this.ctx.textAlign = "center";
 
     bars.forEach((entry, index) => {
-      const x =
-        index * (this.candlestickWidth + this.candlestickSpacing) -
-        this.scrollOffsetX;
+      const x = this.viewportManager.getTransformedX(index);
 
       if (index % dynamicInterval === 0 || index === bars.length - 1) {
         const time = new Date(entry.Time * 1000).toLocaleTimeString();
@@ -224,10 +230,7 @@ export class CandleStickRenderer {
       return;
     }
 
-    const index = Math.floor(
-      (this.mouseX + this.scrollOffsetX) /
-        (this.candlestickWidth + this.candlestickSpacing)
-    );
+    const index = this.viewportManager.getIndexByCanvasX(this.mouseX);
     if (index >= 0 && index < bars.length) {
       const bar = bars[index];
       const date = new Date(bar.Time * 1000);
@@ -274,18 +277,6 @@ export class CandleStickRenderer {
     this.ctx.restore();
   }
 
-  private getScaledPrice(mouseY: number): number {
-    const scaleMin = this.priceLow ?? 0;
-    const scaleMax = this.priceHigh ?? 0;
-    return ChartUtils.scale(
-      mouseY,
-      this.canvasHeightConsideringDateScale,
-      0,
-      scaleMin,
-      scaleMax
-    );
-  }
-
   private handleMouseMove(x: number, y: number) {
     this.mouseY = y;
     this.mouseX = this.snapToCandleCenter(x);
@@ -307,15 +298,11 @@ export class CandleStickRenderer {
       return;
     }
 
-    this.render({
-      bars: this.barsToRender,
-      priceLow: this.priceLow,
-      priceHigh: this.priceHigh,
-    });
+    this.requestRender();
   }
 
   private async handleDrag(deltaX: number, deltaY: number) {
-    this.changeOffset(this.scrollOffsetX - deltaX, this.scrollOffsetY - deltaY);
+    this.viewportManager.pan(-deltaX, -deltaY);
   }
 
   private handleCanvasResize(newWindowX: number, newWindowY: number) {
@@ -325,16 +312,13 @@ export class CandleStickRenderer {
 
     if (!this.barsToRender) return;
 
-    this.render({
-      bars: this.barsToRender,
-    });
+    this.requestRender();
   }
 
   private async handleMouseWheel(
     deltaX: number,
     deltaY: number,
-    canvasMouseX: number,
-    canvasMouseY: number
+    canvasMouseX: number
   ) {
     if (!this.priceLow || !this.priceHigh) {
       return console.warn("Price low/high not set. Cannot render.");
@@ -343,54 +327,25 @@ export class CandleStickRenderer {
     if (canvasMouseX > this.canvasWidthConsideringPriceScale) {
       const scaleRate = 0.005;
       const direction = deltaY > 0 ? -1 : 1;
-      const priceRange = this.priceHigh - this.priceLow;
-      const newPriceLow = this.priceLow + direction * priceRange * scaleRate;
-      const newPriceHigh = this.priceHigh - direction * priceRange * scaleRate;
-
-      this.priceLow = newPriceLow;
-      this.priceHigh = newPriceHigh;
-
-      const mouseYPriceBeforeZoom = this.getScaledPrice(
-        canvasMouseY + this.scrollOffsetY
-      );
-      const newY = this.getScaledY(
-        mouseYPriceBeforeZoom,
-        newPriceLow,
-        newPriceHigh
-      );
-
-      const newScrollOffsetY = newY - canvasMouseY;
-
-      this.changeOffset(this.scrollOffsetX, newScrollOffsetY);
+      this.viewportManager.zoomY(direction * scaleRate);
+      this.requestRender();
       return;
     }
 
-    const mouseXPercent =
-      (canvasMouseX + this.scrollOffsetX) /
-      (this.candlestickWidth + this.candlestickSpacing);
-
     if (Math.abs(deltaY) > Math.abs(deltaX)) {
-      const changeVal = 0.2;
-      this.candlestickWidth += deltaY > 0 ? -changeVal : changeVal;
-      this.candlestickWidth = Math.max(
-        0.5,
-        Math.min(20, this.candlestickWidth)
-      );
-
-      this.changeOffset(
-        mouseXPercent * (this.candlestickWidth + this.candlestickSpacing) -
-          canvasMouseX,
-        this.scrollOffsetY
+      const changeVal = 0.1;
+      this.viewportManager.zoomX(
+        deltaY > 0 ? -changeVal : changeVal,
+        canvasMouseX
       );
     } else {
-      this.changeOffset(this.scrollOffsetX + deltaX, this.scrollOffsetY);
+      this.viewportManager.pan(deltaX, 0);
     }
+
+    this.requestRender();
   }
 
-  private changeOffset(scrollOffsetX: number, scrollOffsetY: number) {
-    this.scrollOffsetX = scrollOffsetX;
-    this.scrollOffsetY = scrollOffsetY;
-
+  private onViewPortChange() {
     if (
       this.barsToRender === null ||
       this.priceLow === null ||
@@ -414,18 +369,12 @@ export class CandleStickRenderer {
       );
 
     if (isDifferent) {
-      this.loadMoreBarsCallback(
+      this.barsAreMissingFromSide(
         indexRange[0] === 0
           ? TimelineDirection.BACKWARD
           : TimelineDirection.FORWARD
       );
     }
-
-    this.render({
-      bars: this.barsToRender,
-      priceLow: this.priceLow,
-      priceHigh: this.priceHigh,
-    });
   }
 
   private areMaxAmountAndRenderedAmountSignificantlyDifferent(
@@ -451,9 +400,7 @@ export class CandleStickRenderer {
     }
 
     this.barsToRender.forEach((bar, index) => {
-      const x =
-        index * (this.candlestickWidth + this.candlestickSpacing) -
-        this.scrollOffsetX;
+      const x = this.viewportManager.getTransformedX(index);
       if (
         x + this.candlestickWidth > 0 &&
         x < this.canvasWidthConsideringPriceScale
@@ -472,34 +419,49 @@ export class CandleStickRenderer {
     };
   }
 
-  private snapToCandleCenter(rawMouseX: number) {
-    const index = Math.round(
-      (rawMouseX + this.scrollOffsetX) /
-        (this.candlestickWidth + this.candlestickSpacing)
-    );
+  private requestRender() {
+    if (
+      this.barsToRender === null ||
+      this.priceLow === null ||
+      this.priceHigh === null
+    ) {
+      console.warn("No data to render.");
+      return;
+    }
 
+    this.render({
+      bars: this.barsToRender,
+      priceLow: this.priceLow,
+      priceHigh: this.priceHigh,
+    });
+  }
+
+  private snapToCandleCenter(rawMouseX: number) {
     const snappedX =
-      index * (this.candlestickWidth + this.candlestickSpacing) +
-      this.candlestickWidth / 2 -
-      this.scrollOffsetX;
+      this.viewportManager.getTransformedX(
+        this.viewportManager.getIndexByCanvasX(rawMouseX)
+      ) +
+      this.candlestickWidth / 2;
 
     return Math.min(snappedX, this.canvas.width);
   }
 
-  private getScaledY(value: number, min: number, max: number): number {
-    return ChartUtils.scale(
-      value,
-      min,
-      max,
-      this.canvasHeightConsideringDateScale,
-      0
-    );
-  }
-
   get canvasHeightConsideringDateScale(): number {
-    return this.canvas.height - this.dateScaleYMarginY;
+    return this.canvas.height - this.dateScaleMarginY;
   }
   get canvasWidthConsideringPriceScale(): number {
     return this.canvas.width - this.priceScaleMarginX;
+  }
+
+  get candlestickWidth(): number {
+    return this.viewportManager.getCurrentCandlestickWidth();
+  }
+
+  get priceLow(): number {
+    return this.viewportManager.getPriceBounds().low;
+  }
+
+  get priceHigh(): number {
+    return this.viewportManager.getPriceBounds().high;
   }
 }
