@@ -7,7 +7,8 @@ export class InputHandler {
       onMouseWheel: (
         deltaX: number,
         deltaY: number,
-        canvasMouseX: number
+        canvasMouseX: number,
+        canvasMouseY: number
       ) => void;
       onResize: (newWindowX: number, newWindowY: number) => void;
     }
@@ -53,7 +54,8 @@ export class InputHandler {
     const deltaY = event.deltaY;
 
     const mouseX = event.clientX - this.canvas.getBoundingClientRect().left;
-    this.config.onMouseWheel(deltaX, deltaY, mouseX);
+    const mouseY = event.clientY - this.canvas.getBoundingClientRect().top;
+    this.config.onMouseWheel(deltaX, deltaY, mouseX, mouseY);
   };
 
   private handleResize = () => {

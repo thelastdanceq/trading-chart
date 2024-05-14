@@ -19,6 +19,9 @@ export class CandleStickRenderer {
   private priceLow: number | null = null;
   private priceHigh: number | null = null;
 
+  private readonly priceScaleMarginX = 70;
+  private readonly dateScaleYMarginY = 30;
+
   constructor(
     private canvas: HTMLCanvasElement,
     private ctx: CanvasRenderingContext2D,
@@ -100,7 +103,10 @@ export class CandleStickRenderer {
       const yOpen = this.getScaledY(bar.Open, low, high) - this.scrollOffsetY;
       const yClose = this.getScaledY(bar.Close, low, high) - this.scrollOffsetY;
 
-      if (x + this.candlestickWidth > 0 && x < this.canvas.width) {
+      if (
+        x + this.candlestickWidth > 0 &&
+        x < this.canvasWidthConsideringPriceScale
+      ) {
         this.ctx.beginPath();
         this.ctx.moveTo(x + this.candlestickWidth / 2, yHigh);
         this.ctx.lineTo(x + this.candlestickWidth / 2, yLow);
@@ -120,12 +126,15 @@ export class CandleStickRenderer {
 
   private drawPriceScale(low: number, high: number) {
     const priceRange = high - low;
-    const numSteps = this.canvas.height / 50;
+    const numSteps = this.canvasHeightConsideringDateScale / 50;
     const stepValue = priceRange / numSteps;
     const visibleLow =
-      low + -this.scrollOffsetY * (priceRange / this.canvas.height);
+      low +
+      -this.scrollOffsetY *
+        (priceRange / this.canvasHeightConsideringDateScale);
     const visibleHigh =
-      high - this.scrollOffsetY * (priceRange / this.canvas.height);
+      high -
+      this.scrollOffsetY * (priceRange / this.canvasHeightConsideringDateScale);
 
     const precision = ChartUtils.calculateDynamicPrecision(low, high);
 
@@ -138,7 +147,7 @@ export class CandleStickRenderer {
 
     for (let price = startValue; price <= endValue; price += stepValue) {
       const y = this.getScaledY(price, low, high) - this.scrollOffsetY;
-      if (y > 0 && y < this.canvas.height) {
+      if (y > 0 && y < this.canvasHeightConsideringDateScale) {
         this.ctx.fillText(price.toFixed(precision), this.canvas.width - 10, y);
       }
     }
@@ -152,8 +161,13 @@ export class CandleStickRenderer {
     }
     const mouseYPrice = this.getScaledPrice(this.mouseY + this.scrollOffsetY);
 
-    this.ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
-    this.ctx.fillRect(this.canvas.width - 100, this.mouseY - 10, 90, 20);
+    this.ctx.fillStyle = "#fff";
+    this.ctx.fillRect(
+      this.canvasWidthConsideringPriceScale,
+      this.mouseY - 10,
+      90,
+      20
+    );
     this.ctx.fillStyle = "#000";
     this.ctx.fillText(
       mouseYPrice.toFixed(precision),
@@ -170,6 +184,14 @@ export class CandleStickRenderer {
 
     let lastDrawn: null | string = null;
 
+    this.ctx.fillStyle = "#fff";
+
+    this.ctx.fillRect(
+      0,
+      this.canvasHeightConsideringDateScale,
+      this.canvas.width,
+      this.dateScaleYMarginY
+    );
     this.ctx.font = "10px Arial";
     this.ctx.fillStyle = "#333";
     this.ctx.textAlign = "center";
@@ -181,7 +203,11 @@ export class CandleStickRenderer {
 
       if (index % dynamicInterval === 0 || index === bars.length - 1) {
         const time = new Date(entry.Time * 1000).toLocaleTimeString();
-        if (x > 0 && x < this.canvas.width && time !== lastDrawn) {
+        if (
+          x > 0 &&
+          x < this.canvasWidthConsideringPriceScale &&
+          time !== lastDrawn
+        ) {
           this.ctx.fillText(time, x, this.canvas.height - 10);
           lastDrawn = time;
         }
@@ -191,7 +217,10 @@ export class CandleStickRenderer {
     this.drawDateOverlay(bars);
   }
   private drawDateOverlay(bars: Bar[]) {
-    if (this.mouseX === null) {
+    if (
+      this.mouseX === null ||
+      this.mouseX > this.canvasWidthConsideringPriceScale
+    ) {
       return;
     }
 
@@ -210,23 +239,35 @@ export class CandleStickRenderer {
         minute: "2-digit",
       });
 
-      this.ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
-      this.ctx.fillRect(this.mouseX - 100, this.canvas.height - 30, 200, 20);
+      this.ctx.fillStyle = "#fff";
+      this.ctx.fillRect(
+        this.mouseX - 100,
+        this.canvasHeightConsideringDateScale,
+        200,
+        20
+      );
       this.ctx.fillStyle = "#000";
       this.ctx.fillText(dateString, this.mouseX, this.canvas.height - 15);
     }
   }
 
   private drawCrosshair(x: number, y: number) {
+    if (
+      x > this.canvasWidthConsideringPriceScale ||
+      y > this.canvasHeightConsideringDateScale
+    ) {
+      return;
+    }
+
     this.ctx.save();
     this.ctx.beginPath();
     this.ctx.setLineDash([5, 5]);
 
     this.ctx.moveTo(x, 0);
-    this.ctx.lineTo(x, this.canvas.height);
+    this.ctx.lineTo(x, this.canvasHeightConsideringDateScale);
 
     this.ctx.moveTo(0, y);
-    this.ctx.lineTo(this.canvas.width, y);
+    this.ctx.lineTo(this.canvasWidthConsideringPriceScale, y);
 
     this.ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
     this.ctx.stroke();
@@ -236,12 +277,26 @@ export class CandleStickRenderer {
   private getScaledPrice(mouseY: number): number {
     const scaleMin = this.priceLow ?? 0;
     const scaleMax = this.priceHigh ?? 0;
-    return ChartUtils.scale(mouseY, this.canvas.height, 0, scaleMin, scaleMax);
+    return ChartUtils.scale(
+      mouseY,
+      this.canvasHeightConsideringDateScale,
+      0,
+      scaleMin,
+      scaleMax
+    );
   }
 
   private handleMouseMove(x: number, y: number) {
     this.mouseY = y;
     this.mouseX = this.snapToCandleCenter(x);
+
+    if (x > this.canvasWidthConsideringPriceScale) {
+      this.canvas.style.cursor = "ns-resize";
+    } else if (y > this.canvasHeightConsideringDateScale) {
+      this.canvas.style.cursor = "ew-resize";
+    } else {
+      this.canvas.style.cursor = "crosshair";
+    }
 
     if (
       this.barsToRender === null ||
@@ -278,8 +333,38 @@ export class CandleStickRenderer {
   private async handleMouseWheel(
     deltaX: number,
     deltaY: number,
-    canvasMouseX: number
+    canvasMouseX: number,
+    canvasMouseY: number
   ) {
+    if (!this.priceLow || !this.priceHigh) {
+      return console.warn("Price low/high not set. Cannot render.");
+    }
+
+    if (canvasMouseX > this.canvasWidthConsideringPriceScale) {
+      const scaleRate = 0.005;
+      const direction = deltaY > 0 ? -1 : 1;
+      const priceRange = this.priceHigh - this.priceLow;
+      const newPriceLow = this.priceLow + direction * priceRange * scaleRate;
+      const newPriceHigh = this.priceHigh - direction * priceRange * scaleRate;
+
+      this.priceLow = newPriceLow;
+      this.priceHigh = newPriceHigh;
+
+      const mouseYPriceBeforeZoom = this.getScaledPrice(
+        canvasMouseY + this.scrollOffsetY
+      );
+      const newY = this.getScaledY(
+        mouseYPriceBeforeZoom,
+        newPriceLow,
+        newPriceHigh
+      );
+
+      const newScrollOffsetY = newY - canvasMouseY;
+
+      this.changeOffset(this.scrollOffsetX, newScrollOffsetY);
+      return;
+    }
+
     const mouseXPercent =
       (canvasMouseX + this.scrollOffsetX) /
       (this.candlestickWidth + this.candlestickSpacing);
@@ -319,7 +404,7 @@ export class CandleStickRenderer {
     const amountOfBarsToFitScreen = ChartUtils.getMaxAmountOfBarsToFitScreen(
       this.candlestickWidth,
       this.candlestickSpacing,
-      this.canvas.width
+      this.canvasWidthConsideringPriceScale
     );
 
     const isDifferent =
@@ -369,7 +454,10 @@ export class CandleStickRenderer {
       const x =
         index * (this.candlestickWidth + this.candlestickSpacing) -
         this.scrollOffsetX;
-      if (x + this.candlestickWidth > 0 && x < this.canvas.width) {
+      if (
+        x + this.candlestickWidth > 0 &&
+        x < this.canvasWidthConsideringPriceScale
+      ) {
         if (startIndex === -1) {
           startIndex = index;
         }
@@ -399,6 +487,19 @@ export class CandleStickRenderer {
   }
 
   private getScaledY(value: number, min: number, max: number): number {
-    return ChartUtils.scale(value, min, max, this.canvas.height, 0);
+    return ChartUtils.scale(
+      value,
+      min,
+      max,
+      this.canvasHeightConsideringDateScale,
+      0
+    );
+  }
+
+  get canvasHeightConsideringDateScale(): number {
+    return this.canvas.height - this.dateScaleYMarginY;
+  }
+  get canvasWidthConsideringPriceScale(): number {
+    return this.canvas.width - this.priceScaleMarginX;
   }
 }
